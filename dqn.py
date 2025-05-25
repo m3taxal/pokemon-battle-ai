@@ -30,10 +30,9 @@ class DQN(nn.Module):
         moves_raw = moves_raw.reshape(-1, self.n_moves, ENCODING_CONSTANTS.MOVE)
         moves_emb = self.move_embedder(moves_raw)
         moves_emb = moves_emb.reshape(-1, self.n_moves * self.embed_dim)
-        moves_flat = moves_emb.reshape(moves_emb.size(0), -1)
 
         # concat with field_state -> (batch, len(field features) + len(embedded move features))
-        fused = torch.cat([field_state, moves_flat], dim=1)
+        fused = torch.cat([field_state, moves_emb], dim=1)
         
         # pass through DQN head
         h = F.relu(self.fc1(fused))
