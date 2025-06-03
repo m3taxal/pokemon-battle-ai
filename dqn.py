@@ -9,8 +9,8 @@ class DQN(nn.Module):
     def __init__(self, action_dim=64):
         super().__init__()
         
-        # We have 2 sides (own and opponent side), each side can have a maximum of 4 pkm, each pkm can have a maximum
-        # of 4 moves -> 2*4*4 = 16 moves
+        # We have 2 sides (own and opponent side), each side can have a maximum of 2 active pkm, each pkm can have a maximum
+        # of 4 moves -> 2*2*4 = 16 moves
         self.n_moves    = ENCODING_CONSTANTS.MAX_MOVES*ENCODING_CONSTANTS.MAX_PKM_PER_TEAM*ENCODING_CONSTANTS.MAX_TEAMS
         
         self.embed_dim  = ENCODING_CONSTANTS.EMBEDDED_MOVE
