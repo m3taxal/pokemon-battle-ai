@@ -1,5 +1,7 @@
 # pokemon-battle-ai
-Double DQN agent for pokemon battles
+Double DQN agent for the VGC AI Framework pokemon battle simulator:
+
+https://gitlab.com/DracoStriker/pokemon-vgc-engine
 
 ## checkpoints
 Contains folders of the model at various stages of training. The .pt files
