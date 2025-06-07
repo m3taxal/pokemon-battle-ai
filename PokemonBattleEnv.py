@@ -11,8 +11,7 @@ from vgc2.battle_engine.game_state import get_battle_teams
 from vgc2.competition.match import label_teams
 from vgc2.util.encoding import encode_state, EncodeContext
 from vgc2.util.generator import gen_team, TeamGenerator
-from custom_enviroment.custom_encodings import encode_state
-from custom_enviroment.custom_encodings import ENCODING_CONSTANTS
+from .custom_encodings import encode_state, ENCODING_CONSTANTS
 from vgc2.battle_engine.modifiers import Stat, Status
 from vgc2.battle_engine.pokemon import Pokemon
 from vgc2.battle_engine.team import BattlingTeam, BattlingPokemon
@@ -26,6 +25,7 @@ register(
 
 class PokemonBattleEnv(gym.Env):
     def __init__(self,
+                 randomize_enemy: bool = False,
                  ctx: EncodeContext = EncodeContext(),
                  n_active: int = 2,
                  max_team_size: int = 4,
@@ -34,6 +34,7 @@ class PokemonBattleEnv(gym.Env):
                  opponent: BattlePolicy = GreedyBattlePolicy(),
                  _encode_state=encode_state,
                  _gen_team: TeamGenerator = gen_team):
+        self.randomize_enemy = randomize_enemy
         self.ctx = ctx
         self.n_active = n_active
         self.max_team_size = max_team_size
@@ -51,6 +52,9 @@ class PokemonBattleEnv(gym.Env):
         self.observation_space = gym.spaces.Box(low=0.0, high=1.0, shape=(self.encode_len,), dtype=np.float32)
         self.engine, self.state_view = self._get_engine_view()
         self.encode_buffer = np.zeros(self.encode_len)
+        self.matches = 0
+        self.wins = 0
+        self.win_history = []
 
     def _get_engine_view(self) -> tuple[BattleEngine, tuple[StateView, StateView]]:
         team = (self.gen_team(self.max_team_size, self.max_pkm_moves),
@@ -75,8 +79,11 @@ class PokemonBattleEnv(gym.Env):
         self.engine.reset()
         observation = self._get_obs()
         info = self._get_info()
+        self.matches += 1
+        self.win_history.append(self.wins/self.matches)
         # Randomizes opponent (GreedyBot or RandomBot) for next battle
-        #self.set_opponent()
+        if self.randomize_enemy:
+            self.set_opponent()
         return observation, info
 
     def step(self,
@@ -97,6 +104,11 @@ class PokemonBattleEnv(gym.Env):
         own_hp_before_turn = sum([pkm.hp for pkm in own_team])
         opp_max_hp = sum([pkm.constants.stats[Stat.MAX_HP] for pkm in opp_team])
         opp_hp_before_turn = sum([pkm.hp for pkm in opp_team])
+
+        # Punish if agent chose disabled or out-of-pp move
+        for i, battle_pkm in enumerate(state.sides[0].team.active):
+            if battle_pkm.battling_moves[action[i][0]].disabled or battle_pkm.battling_moves[action[i][0]].pp <= 0:
+                reward -= 5
 
         # Amount of dead opp pokemon
         dead_opp_pkm_before_turn = sum([1 if pkm.fainted() else 0 for pkm in opp_team])
@@ -146,6 +158,7 @@ class PokemonBattleEnv(gym.Env):
         if terminated:
             if self.engine.winning_side == 0:
                 reward += 8
+                self.wins += 1
             else:
                 reward += -8
 
@@ -180,6 +193,7 @@ class PokemonBattleEnv(gym.Env):
         pass
 
     def _get_obs(self):
+        self.encode_buffer = np.zeros(ENCODING_CONSTANTS.STATE)
         self.encode_state(self.encode_buffer, self.state_view[0], self.ctx)
         return self.encode_buffer
 

@@ -8,8 +8,8 @@ import torch
 from torch import nn
 import yaml
 
-from custom_enviroment.experience_replay import ReplayMemory
-from custom_enviroment.dqn import DQN
+from .experience_replay import ReplayMemory
+from .dqn import DQN
 #from custom_enviroment.dqn_no_emb import DQN
 
 from datetime import datetime, timedelta
@@ -18,14 +18,15 @@ import itertools
 
 import os
 
-from custom_enviroment.PokemonBattleEnv import PokemonBattleEnv
+from .PokemonBattleEnv import PokemonBattleEnv
 
 # For printing date and time
 DATE_FORMAT = "%m-%d %H:%M:%S"
 
 # Directory for saving run info
-MAIN_DIR = "custom_enviroment/"
-RUNS_DIR = MAIN_DIR + "runs"
+MAIN_DIR = os.path.dirname(os.path.abspath(__file__))
+PARAMETERS = os.path.join(MAIN_DIR, "hyperparameters.yml")
+RUNS_DIR = os.path.join(MAIN_DIR, "runs")
 os.makedirs(RUNS_DIR, exist_ok=True)
 
 # 'Agg': used to generate plots as images and save them to a file instead of rendering to screen
@@ -38,7 +39,7 @@ device = 'cuda' if torch.cuda.is_available() else 'cpu'
 class Agent():
 
     def __init__(self, hyperparameter_set='pokemon_battle'):
-        with open(MAIN_DIR + 'hyperparameters.yml', 'r') as file:
+        with open(PARAMETERS, 'r') as file:
             all_hyperparameter_sets = yaml.safe_load(file)
             hyperparameters = all_hyperparameter_sets[hyperparameter_set]
 
@@ -56,7 +57,10 @@ class Agent():
         self.epsilon_min        = hyperparameters['epsilon_min']            # minimum epsilon value
         self.stop_on_reward     = hyperparameters['stop_on_reward']         # stop training after reaching this number of rewards
         self.train_freq         = hyperparameters['train_freq']             # update model every train_freq steps
+        self.randomize_enemy    = hyperparameters['randomize_enemy']        # if opponent should be randomized each battle
+        self.repeat_epsilon     = hyperparameters['repeat_epsilon']         # if epsilon should be set to epsilon_init once it reached epsilon_min 
         self.enable_double_dqn  = hyperparameters['enable_double_dqn']      # double dqn on/off flag
+        self.enable_dueling_dqn = hyperparameters['enable_dueling_dqn']     # dueling dqn on/off flag
 
         # Neural Network
         self.loss_fn = nn.MSELoss()          # NN Loss function. MSE=Mean Squared Error can be swapped to something else.
@@ -77,19 +81,16 @@ class Agent():
                 file.write(log_message_start + '\n')
 
         # Create instance of the environment.
-        env = PokemonBattleEnv()
+        env = PokemonBattleEnv(self.randomize_enemy)
         
         # Number of possible actions
         num_actions = env.action_space.n
-
-        # Get observation space size
-        num_states = env.emb_obs_space_len
 
         # List to keep track of rewards collected per episode.
         rewards_per_episode = []
 
         # Create policy and target network. Number of nodes in the hidden layer can be adjusted.
-        policy_dqn = DQN().to(device)
+        policy_dqn = DQN(action_dim=num_actions, enable_dueling_dqn=self.enable_dueling_dqn).to(device)
 
         # Load learned policy
         # We want to keep training the same network and not start over
@@ -182,8 +183,12 @@ class Agent():
 
                     # Decay epsilon
                     epsilon = max(epsilon * self.epsilon_decay, self.epsilon_min)
-                    if epsilon == self.epsilon_min:
-                        epsilon = self.epsilon_init
+                    
+                    # Reset epsilon to encourage exploration
+                    if self.repeat_epsilon:
+                        if epsilon == self.epsilon_min:
+                            epsilon = self.epsilon_init
+                        
                     epsilon_history.append(epsilon)
 
                     # Copy policy network to target network after a certain number of steps
@@ -210,30 +215,35 @@ class Agent():
                 # May slow down training, maybe just print information instead?
                 current_time = datetime.now()
                 if current_time - last_graph_update_time > timedelta(seconds=4):
-                    self.save_graph(rewards_per_episode, epsilon_history)
+                    self.save_graph(rewards_per_episode, epsilon_history, env.win_history)
                     last_graph_update_time = current_time
 
 
-    def save_graph(self, rewards_per_episode, epsilon_history):
+    def save_graph(self, rewards_per_episode, epsilon_history, win_history):
         # Save plots
-        fig = plt.figure(1)
+        fig = plt.figure(1, figsize=(15, 5))
 
         # Plot average rewards (Y-axis) vs episodes (X-axis)
         mean_rewards = np.zeros(len(rewards_per_episode))
         for x in range(len(mean_rewards)):
             mean_rewards[x] = np.mean(rewards_per_episode[max(0, x-99):(x+1)])
-        plt.subplot(121) # plot on a 1 row x 2 col grid, at cell 1
+        plt.subplot(131) # plot on a 1 row x 2 col grid, at cell 1
         # plt.xlabel('Episodes')
         plt.ylabel('Mean Rewards')
         plt.plot(mean_rewards)
 
         # Plot epsilon decay (Y-axis) vs episodes (X-axis)
-        plt.subplot(122) # plot on a 1 row x 2 col grid, at cell 2
+        plt.subplot(132) # plot on a 1 row x 3 col grid, at cell 2
         # plt.xlabel('Time Steps')
         plt.ylabel('Epsilon Decay')
         plt.plot(epsilon_history)
 
-        plt.subplots_adjust(wspace=1.0, hspace=1.0)
+        # Plot win rate
+        plt.subplot(133) # plot on a 1 row x 3 col grid, at cell 3
+        plt.ylabel('Win Rate')
+        plt.plot(win_history)
+
+        plt.subplots_adjust(wspace=1, hspace=1)
 
         # Save plots
         fig.savefig(self.GRAPH_FILE)
