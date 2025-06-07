@@ -1,5 +1,5 @@
 # pokemon-battle-ai
-Double DQN agent for the VGC AI Framework pokemon battle simulator:
+Dueling double DQN agent for the VGC AI Framework pokemon battle simulator:
 
 https://gitlab.com/DracoStriker/pokemon-vgc-engine
 
