@@ -5,7 +5,7 @@ https://gitlab.com/DracoStriker/pokemon-vgc-engine
 
 ## checkpoints
 Contains folders of the model at various stages of training. The .pt files
-are the saved PyTorch models. The graphs show the mean reward per episode (one episode = one whole pokemon battle, from start to finish) and the epsilon at each time step.
+are the saved PyTorch models. The graphs show the mean reward per episode (one episode = one whole pokemon battle, from start to finish) and the winrate.
 
 ## agent.py
 Contains agent logic such as the main training loop and optimizing step. 
