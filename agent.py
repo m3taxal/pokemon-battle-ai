@@ -111,8 +111,7 @@ class Agent():
             # Select action based on epsilon-greedy.
             if random.random() < epsilon:
                 # select random action
-                action = env.action_space.sample()
-                action = torch.tensor(action, dtype=torch.int64, device=device)
+                action = torch.tensor(env.action_space.sample(), dtype=torch.int64, device=device)
             else:
                 # select best action
                 with torch.no_grad():
@@ -122,16 +121,17 @@ class Agent():
                     action = policy_dqn(state.unsqueeze(dim=0)).squeeze().argmax()
 
             # Execute action. Truncated and info is not used.
-            new_state,reward,terminated,truncated,info = env.step(action.item())
+            new_values = env.step(action.item())
 
-            episode_reward += reward
+            terminated = new_values[2]
+
+            episode_reward += new_values[1]
 
             # Convert new state and reward to tensors on device.
-            new_state = torch.tensor(new_state, dtype=torch.float, device=device)
-            reward = torch.tensor(reward, dtype=torch.float, device=device)
+            new_state = torch.tensor(new_values[0], dtype=torch.float, device=device)
 
             # Save experience into memory.
-            memory.append((state, action, new_state, reward, terminated))
+            memory.append((state, action, new_state, torch.tensor(new_values[1], dtype=torch.float, device=device), terminated))
 
             # Move to the next state.
             state = new_state
@@ -143,17 +143,18 @@ class Agent():
                     mini_batch = memory.sample(self.mini_batch_size)
                     self.optimize(mini_batch, policy_dqn, target_dqn)
 
+                if self.steps % self.network_sync_rate == 0:
                     # Copy policy network to target network.
                     target_dqn.load_state_dict(policy_dqn.state_dict())
 
-            # Linear epsilon decay over fraction of training steps.
-            if epsilon > self.epsilon_min:
-                decay_factor = ((self.epsilon_init-self.epsilon_min) / (self.epsilon_fraction*self.steps))
-                epsilon -= decay_factor
+                # Linear epsilon decay over fraction of training steps.
+                if epsilon > self.epsilon_min:
+                    decay_factor = ((self.epsilon_init-self.epsilon_min) / (self.epsilon_fraction*self.steps))
+                    epsilon -= decay_factor
 
-                # Possible floating point inaccuracies could occur, so set epsilon to epsilon_min if necessary.
-                if epsilon < self.epsilon_min:
-                    epsilon = self.epsilon_min
+                    # Possible floating point inaccuracies could occur, so set epsilon to epsilon_min if necessary.
+                    if epsilon < self.epsilon_min:
+                        epsilon = self.epsilon_min
 
             # Save model and log results if another log_freq steps have been processed.
             if step % self.log_freq == 0 and step > 0: # No use in logging the 0th step
@@ -169,8 +170,9 @@ class Agent():
             if terminated:
                 episode_count += 1
                 reward_history = np.append(reward_history, episode_reward)
-                state, _ = env.reset()  # Reset environment for next episode. Reset returns (state,info).    
-                state = torch.tensor(state, dtype=torch.float, device=device)
+                
+                # Reset environment for next episode. Reset returns (state,info).    
+                state = torch.tensor(env.reset()[0], dtype=torch.float, device=device)
 
                 # Plot every plot_freq episodes.
                 if self.should_plot and episode_count % self.plot_freq == 0:
