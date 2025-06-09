@@ -1,6 +1,5 @@
 import torch.nn as nn
-import torch.nn.functional as F
-from .custom_encodings import ENCODING_CONSTANTS
+from custom_encodings import ENCODING_CONSTANTS
 
 class MoveEmbedder(nn.Module):
     def __init__(self):

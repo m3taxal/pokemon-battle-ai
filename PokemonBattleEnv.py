@@ -1,20 +1,16 @@
-from typing import SupportsFloat, Any
-
+import numpy as np
 import gymnasium as gym
 from gymnasium.core import ObsType, RenderFrame
 from gymnasium.envs.registration import register
-import numpy as np
+from typing import SupportsFloat, Any
 from vgc2.agent import BattlePolicy
 from vgc2.agent.battle import RandomBattlePolicy, GreedyBattlePolicy
-from vgc2.battle_engine import BattleEngine, TeamView, State, StateView, BattleRuleParam, BattleCommand, calculate_damage
+from vgc2.battle_engine import BattleEngine, TeamView, State, StateView, BattleRuleParam, BattleCommand
 from vgc2.battle_engine.game_state import get_battle_teams
 from vgc2.competition.match import label_teams
-from vgc2.util.encoding import encode_state, EncodeContext
 from vgc2.util.generator import gen_team, TeamGenerator
-from .custom_encodings import encode_state, ENCODING_CONSTANTS
-from vgc2.battle_engine.modifiers import Stat, Status
-from vgc2.battle_engine.pokemon import Pokemon
-from vgc2.battle_engine.team import BattlingTeam, BattlingPokemon
+from custom_encodings import encode_state, ENCODING_CONSTANTS, EncodeContext
+from vgc2.battle_engine.modifiers import Stat
 from vgc2.util.forward import *
 
 # Register this module as a gym environment. Once registered, the id is usable in gym.make().
@@ -54,7 +50,8 @@ class PokemonBattleEnv(gym.Env):
         self.encode_buffer = np.zeros(self.encode_len)
         self.matches = 0
         self.wins = 0
-        self.win_history = []
+        self.winrate = 0
+        self.winrate_history = np.array([])
 
     def _get_engine_view(self) -> tuple[BattleEngine, tuple[StateView, StateView]]:
         team = (self.gen_team(self.max_team_size, self.max_pkm_moves),
@@ -80,7 +77,8 @@ class PokemonBattleEnv(gym.Env):
         observation = self._get_obs()
         info = self._get_info()
         self.matches += 1
-        self.win_history.append(self.wins/self.matches)
+        self.winrate = self.wins / self.matches
+        self.winrate_history = np.append(self.winrate_history, self.winrate)
         # Randomizes opponent (GreedyBot or RandomBot) for next battle
         if self.randomize_enemy:
             self.set_opponent()
@@ -116,9 +114,6 @@ class PokemonBattleEnv(gym.Env):
         # Amount of dead own pokemon
         dead_own_pkm_before_turn = sum([1 if pkm.fainted() else 0 for pkm in own_team])
 
-        # Status stuff
-        opp_status_before = sum(p.status != Status.NONE for p in opp_team)
-        
         # Run turn
         opp_action = self.opponent.decision(self.state_view[1])
         self.engine.run_turn((cmds, opp_action))
@@ -139,10 +134,6 @@ class PokemonBattleEnv(gym.Env):
         # Punish if own pkm was killed
         dead_own_pkm_after_turn = sum([1 if pkm.fainted() else 0 for pkm in own_team])
         reward += dead_own_pkm_before_turn-dead_own_pkm_after_turn
-
-        # Reward if opp pkm, which did not have status before, has status after turn
-        opp_status_after  = sum(p.status != Status.NONE for p in opp_team)
-        reward += (opp_status_after-opp_status_before) * 0.5 # A maximum of 2 pkm can be statused in a single turn
 
         # Reward if more HP after turn (e.g. if agent healed itself)
         # Punish if dmg was taken
