@@ -27,7 +27,7 @@ class PokemonBattleEnv(gym.Env):
                  max_team_size: int = 4,
                  max_pkm_moves: int = 4,
                  params: BattleRuleParam = BattleRuleParam(),
-                 opponent: BattlePolicy = GreedyBattlePolicy(),
+                 opponent: BattlePolicy = RandomBattlePolicy(),
                  _encode_state=encode_state,
                  _gen_team: TeamGenerator = gen_team):
         self.randomize_enemy = randomize_enemy

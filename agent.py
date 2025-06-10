@@ -10,6 +10,9 @@ from PokemonBattleEnv import PokemonBattleEnv
 from experience_replay import ReplayMemory
 from dqn import DQN
 from LogWindow import LogWindow
+from prio_replay import PrioritizedReplayBuffer
+from custom_encodings import ENCODING_CONSTANTS
+from utils import device
 
 # Directory for saving run info.
 MAIN_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -19,9 +22,6 @@ os.makedirs(RUNS_DIR, exist_ok=True)
 
 # For printing date and time.
 DATE_FORMAT = "%m-%d %H:%M:%S"
-
-# Sometimes GPU not always faster than CPU due to overhead of moving data to GPU.
-device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 # Deep Q-Learning Agent.
 class Agent():
@@ -35,6 +35,9 @@ class Agent():
         # Hyperparameters (adjustable).
         self.env_id             = self.hyperparameters['env_id']                 # used for gym.make()
         self.replay_memory_size = self.hyperparameters['replay_memory_size']     # size of replay memory
+        self.replay_offset      = self.hyperparameters['replay_offset']          # add offset so errors are never 0
+        self.replay_alpha       = self.hyperparameters['replay_alpha']           # 1 = full priority sampling, 0 = uniform random sampling
+        self.replay_beta        = self.hyperparameters['replay_beta']            # fix bias towards higher priorities in priority sampling
         self.mini_batch_size    = self.hyperparameters['mini_batch_size']        # size of the training data set sampled from the replay memory
         self.network_sync_rate  = self.hyperparameters['network_sync_rate']      # number of steps the agent takes before syncing the policy and target network
         self.learning_rate_a    = self.hyperparameters['learning_rate_a']        # learning rate (alpha)
@@ -79,8 +82,10 @@ class Agent():
         # Create instance of the environment.
         env = PokemonBattleEnv(self.randomize_enemy)
 
+        num_actions = env.action_space.n
+
         # Create policy network.
-        policy_dqn = DQN(action_dim=env.action_space.n).to(device)
+        policy_dqn = DQN(action_dim=num_actions).to(device)
 
         # We want to keep training the same network and not start over.
         if self.continue_training:
@@ -89,8 +94,9 @@ class Agent():
         # Initialize epsilon.
         epsilon = self.epsilon_init
         
-        # Initialize replay memory.tep
-        memory = ReplayMemory(self.replay_memory_size)
+        # Initialize replay memory.
+        # TODO: Add tunable hyperparameters
+        memory = PrioritizedReplayBuffer(self.replay_memory_size)
 
         # Create the target network and make it identical to the policy network.
         target_dqn = DQN().to(device)
@@ -121,17 +127,16 @@ class Agent():
                     action = policy_dqn(state.unsqueeze(dim=0)).squeeze().argmax()
 
             # Execute action. Truncated and info is not used.
-            new_values = env.step(action.item())
+            new_state, reward, terminated, truncated, info = env.step(action.item())
 
-            terminated = new_values[2]
-
-            episode_reward += new_values[1]
+            episode_reward += reward
 
             # Convert new state and reward to tensors on device.
-            new_state = torch.tensor(new_values[0], dtype=torch.float, device=device)
+            new_state = torch.tensor(new_state, dtype=torch.float, device=device)
+            reward = torch.tensor(reward, dtype=torch.float, device=device)
 
             # Save experience into memory.
-            memory.append((state, action, new_state, torch.tensor(new_values[1], dtype=torch.float, device=device), terminated))
+            memory.add((state, action, reward, new_state, terminated))
 
             # Move to the next state.
             state = new_state
@@ -140,8 +145,10 @@ class Agent():
             if len(memory)>self.mini_batch_size:
                 # Update every train_freq.
                 if step % self.train_freq == 0:
-                    mini_batch = memory.sample(self.mini_batch_size)
-                    self.optimize(mini_batch, policy_dqn, target_dqn)
+                    mini_batch, weights, tree_idx = memory.sample(self.mini_batch_size)
+                    td_error = self.optimize(mini_batch, policy_dqn, target_dqn, weights)
+
+                    memory.update_priorities(tree_idx, td_error.numpy())
 
                 if self.steps % self.network_sync_rate == 0:
                     # Copy policy network to target network.
@@ -190,11 +197,10 @@ class Agent():
         print("Training finished!")
 
     # Optimize policy network
-    def optimize(self, mini_batch, policy_dqn, target_dqn):
-
+    def optimize(self, mini_batch, policy_dqn, target_dqn, weights=None):
         # Transpose the list of experiences and separate each element.
-        states, actions, new_states, rewards, terminations = zip(*mini_batch)
-
+        states, actions, rewards, new_states, terminations = zip(*mini_batch)
+ 
         # Stack tensors to create batch tensors.
         # tensor([[1,2,3]])
         states = torch.stack(states)
@@ -216,13 +222,23 @@ class Agent():
         # Calcuate Q values from current policy.
         current_q = policy_dqn(states).gather(dim=1, index=actions.unsqueeze(dim=1)).squeeze()
 
+        if weights is None:
+            weights = torch.ones_like(current_q)
+
+        diff = current_q - target_q
+
+        # To update priorities in replay memory
+        td_error = torch.abs(diff).detach()
+
         # Compute loss.
-        loss = self.loss_fn(current_q, target_q)
+        loss = torch.mean(diff**2 * weights)
 
         # Optimize the model (backpropagation).
         self.optimizer.zero_grad()  # Clear gradients.
         loss.backward()             # Compute gradients.
         self.optimizer.step()       # Update network parameters i.e. weights and biases.
+
+        return td_error
 
     def test(self, randomized_enemy: bool = False, battles_to_play: int = 1000):
         print("Starting evaluation...")
