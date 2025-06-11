@@ -27,9 +27,7 @@ class PokemonBattleEnv(gym.Env):
                  max_team_size: int = 4,
                  max_pkm_moves: int = 4,
                  params: BattleRuleParam = BattleRuleParam(),
-                 opponent: BattlePolicy = RandomBattlePolicy(),
-                 _encode_state=encode_state,
-                 _gen_team: TeamGenerator = gen_team):
+                 opponent: BattlePolicy = RandomBattlePolicy()):
         self.randomize_enemy = randomize_enemy
         self.ctx = ctx
         self.n_active = n_active
@@ -38,7 +36,7 @@ class PokemonBattleEnv(gym.Env):
         self.params = params
         self.opponents = [GreedyBattlePolicy(), RandomBattlePolicy()]
         self.opponent = opponent
-        self.encode_state = _encode_state
+        self.encode_state = encode_state
         self.gen_team = gen_team
         self.encode_len = ENCODING_CONSTANTS.STATE
         self.int_action_space = gym.spaces.MultiDiscrete([max_pkm_moves, max(max_team_size - n_active, n_active)] * n_active,

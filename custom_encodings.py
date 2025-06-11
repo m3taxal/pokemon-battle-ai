@@ -173,20 +173,24 @@ def encode_state(e: np.array,
     diff = ENCODING_CONSTANTS.MAX_PKM_PER_TEAM - len(state.sides[0].team.active)
     i += ENCODING_CONSTANTS.MOVE*ENCODING_CONSTANTS.MAX_MOVES*diff # Keep state observation consistent length
 
-    # TODO: Encode predicted move of opponent
-    opp = GreedyBattlePolicy()
+    # TODO: Encode predicted move of opponent with Markov Chain
     opp_state = State(tuple((state.sides[1], state.sides[0])))
-    opp_decision = opp.decision(opp_state)
-    for j, pkm in enumerate(opp_state.sides[0].team.active):
-        if len(pkm.battling_moves) == 0:
-            i += ENCODING_CONSTANTS.MOVE-1
-            continue
-        move = pkm.battling_moves[opp_decision[j][0]]
-        target = opp_state.sides[1].team.active[opp_decision[j][1]]
-        e[i] = calculate_damage(params, 0, move.constants, opp_state, pkm, target) / ctx.max_hp
-        i += 1
-        i += encode_battling_move(e[i:], move)
-    diff = ENCODING_CONSTANTS.MAX_PKM_PER_TEAM - len(opp_state.sides[0].team.active)
-    i += diff*(ENCODING_CONSTANTS.MOVE-1)
+    act_opp_pkm = opp_state.sides[0].team.active
+    have_seen_moves = all(len(p.battling_moves) > 0 for p in act_opp_pkm)
+
+    if have_seen_moves:
+        opp = GreedyBattlePolicy()
+        opp_decision = opp.decision(opp_state)
+        for j, pkm in enumerate(opp_state.sides[0].team.active):
+            move = pkm.battling_moves[opp_decision[j][0]]
+            target = opp_state.sides[1].team.active[opp_decision[j][1]]
+            e[i] = calculate_damage(params, 0, move.constants, opp_state, pkm, target) / ctx.max_hp
+            i += 1
+            i += encode_battling_move(e[i:], move)
+        diff = ENCODING_CONSTANTS.MAX_PKM_PER_TEAM - len(opp_state.sides[0].team.active)
+        i += diff*(ENCODING_CONSTANTS.MOVE-1)
+    else:
+        i += 2*(ENCODING_CONSTANTS.MOVE-1)
+        
 
     return i

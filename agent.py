@@ -7,11 +7,9 @@ import matplotlib.pyplot as plt
 import argparse
 from datetime import datetime
 from PokemonBattleEnv import PokemonBattleEnv
-from experience_replay import ReplayMemory
 from dqn import DQN
-from LogWindow import LogWindow
-from prio_replay import PrioritizedReplayBuffer
-from custom_encodings import ENCODING_CONSTANTS
+from PrioritizedReplayBuffer import PrioritizedReplayBuffer
+from ReplayBuffer import ReplayBuffer
 from utils import device
 
 # Directory for saving run info.
@@ -33,29 +31,26 @@ class Agent():
 
         self.hyperparameter_set = hyperparameter_set
         # Hyperparameters (adjustable).
-        self.env_id             = self.hyperparameters['env_id']                 # used for gym.make()
-        self.replay_memory_size = self.hyperparameters['replay_memory_size']     # size of replay memory
-        self.replay_offset      = self.hyperparameters['replay_offset']          # add offset so errors are never 0
-        self.replay_alpha       = self.hyperparameters['replay_alpha']           # 1 = full priority sampling, 0 = uniform random sampling
-        self.replay_beta        = self.hyperparameters['replay_beta']            # fix bias towards higher priorities in priority sampling
-        self.mini_batch_size    = self.hyperparameters['mini_batch_size']        # size of the training data set sampled from the replay memory
-        self.network_sync_rate  = self.hyperparameters['network_sync_rate']      # number of steps the agent takes before syncing the policy and target network
-        self.learning_rate_a    = self.hyperparameters['learning_rate_a']        # learning rate (alpha)
-        self.discount_factor_g  = self.hyperparameters['discount_factor_g']      # discount rate (gamma)
-        self.train_freq         = self.hyperparameters['train_freq']             # update model every train_freq steps
-        self.steps              = self.hyperparameters['steps']                  # how many steps model should train for
-        self.epsilon_init       = self.hyperparameters['epsilon_init']           # 1 = 100% random actions
-        self.epsilon_fraction   = self.hyperparameters['epsilon_fraction']       # over what fraction of steps epsilon should be decayed until epsilon_min
-        self.epsilon_min        = self.hyperparameters['epsilon_min']            # minimum epsilon value
-        self.randomize_enemy    = self.hyperparameters['randomize_enemy']        # if opponent should be randomized each battle
-        self.log_freq           = self.hyperparameters['log_freq']               # how often we should log our results
-        self.should_log         = self.hyperparameters['should_log']             # to log, or not to log?
-        self.plot_freq          = self.hyperparameters['plot_freq']              # how often we should plot our results
-        self.should_plot        = self.hyperparameters['should_plot']            # to plot, or not to plot?
-        self.continue_training  = self.hyperparameters['continue_training']      # whether or not to continue training previous model (False if no previous model)
-
-        # For logging results.
-        self.log_window = LogWindow()
+        self.env_id                 = self.hyperparameters['env_id']                 # used for gym.make()
+        self.n_step                 = self.hyperparameters['n_step']                 # how many steps we use for reward calculation
+        self.replay_memory_size     = self.hyperparameters['replay_memory_size']     # size of replay memory
+        self.replay_offset          = self.hyperparameters['replay_offset']          # add offset so errors are never 0
+        self.replay_alpha           = self.hyperparameters['replay_alpha']           # 1 = full priority sampling, 0 = uniform random sampling
+        self.mini_batch_size        = self.hyperparameters['mini_batch_size']        # size of the training data set sampled from the replay memory
+        self.network_sync_rate      = self.hyperparameters['network_sync_rate']      # number of steps the agent takes before syncing the policy and target network
+        self.learning_rate_a        = self.hyperparameters['learning_rate_a']        # learning rate (alpha)
+        self.discount_factor_g      = self.hyperparameters['discount_factor_g']      # discount rate (gamma)
+        self.train_freq             = self.hyperparameters['train_freq']             # update model every train_freq steps
+        self.steps                  = self.hyperparameters['steps']                  # how many steps model should train for
+        self.epsilon_init           = self.hyperparameters['epsilon_init']           # 1 = 100% random actions
+        self.epsilon_fraction       = self.hyperparameters['epsilon_fraction']       # over what fraction of steps epsilon should be decayed until epsilon_min
+        self.epsilon_min            = self.hyperparameters['epsilon_min']            # minimum epsilon value
+        self.randomize_enemy        = self.hyperparameters['randomize_enemy']        # if opponent should be randomized each battle
+        self.log_freq               = self.hyperparameters['log_freq']               # how often we should log our results
+        self.should_log             = self.hyperparameters['should_log']             # to log, or not to log?
+        self.plot_freq              = self.hyperparameters['plot_freq']              # how often we should plot our results
+        self.should_plot            = self.hyperparameters['should_plot']            # to plot, or not to plot?
+        self.continue_training      = self.hyperparameters['continue_training']      # whether or not to continue training previous model (False if no previous model)
 
         # Neural Network.
         self.loss_fn = torch.nn.MSELoss() # NN Loss function.
@@ -94,9 +89,9 @@ class Agent():
         # Initialize epsilon.
         epsilon = self.epsilon_init
         
-        # Initialize replay memory.
-        # TODO: Add tunable hyperparameters
+        # Initialize prioritized replay memory and n-step buffer.
         memory = PrioritizedReplayBuffer(self.replay_memory_size)
+        n_step_buffer = ReplayBuffer(self.replay_memory_size, self.mini_batch_size, self.n_step, self.discount_factor_g)
 
         # Create the target network and make it identical to the policy network.
         target_dqn = DQN().to(device)
@@ -135,20 +130,25 @@ class Agent():
             new_state = torch.tensor(new_state, dtype=torch.float, device=device)
             reward = torch.tensor(reward, dtype=torch.float, device=device)
 
-            # Save experience into memory.
-            memory.add((state, action, reward, new_state, terminated))
+            # Save n-step transition and only start saving 1-step transitions once enough n-steps have been accumulated.
+            transition = (state, action, reward, new_state, int(terminated))
+            one_step_transition_ready = n_step_buffer.store(transition)
+            if one_step_transition_ready:
+                memory.append(transition)
 
             # Move to the next state.
             state = new_state
 
             # If enough experience has been collected.
-            if len(memory)>self.mini_batch_size:
+            if len(memory)>=self.mini_batch_size:
                 # Update every train_freq.
                 if step % self.train_freq == 0:
-                    mini_batch, weights, tree_idx = memory.sample(self.mini_batch_size)
-                    td_error = self.optimize(mini_batch, policy_dqn, target_dqn, weights)
+                    mini_batch, weights, indices = memory.sample(self.mini_batch_size, self.replay_alpha, 1-epsilon)
+                    mini_batch_n_step = n_step_buffer.sample_from_indices(indices)
+                    td_error = self.optimize(mini_batch, mini_batch_n_step, policy_dqn, target_dqn, 
+                                             torch.tensor(weights, dtype=torch.float, device=device))
 
-                    memory.update_priorities(tree_idx, td_error.numpy())
+                    memory.update_probabilites(indices, td_error, self.replay_offset)
 
                 if self.steps % self.network_sync_rate == 0:
                     # Copy policy network to target network.
@@ -169,7 +169,7 @@ class Agent():
                 if self.should_log:
                     # Not exactly sure which metrics to log... winrate is already being plotted,
                     # and epsilon isn't very interesting to log.
-                    log_message = self.log_window.log(datetime.now().strftime(DATE_FORMAT), step, env.winrate, epsilon)
+                    log_message = self.log(datetime.now().strftime(DATE_FORMAT), step, env.winrate, epsilon, 1-epsilon)
                     print(log_message + "\n")
                     with open(self.LOG_FILE, 'a') as file:
                         file.write(log_message + '\n'*2)
@@ -196,8 +196,36 @@ class Agent():
         
         print("Training finished!")
 
+    def log(self, time: str, step: int, winrate: float, epsilon: float, replay_beta: float) -> str:
+            lines = [
+                f"Logged at {time}",
+                f"Step: {step}",
+                f"Winrate: {winrate:.2f}",
+                f"Epsilon: {epsilon:.4f}",
+                f"Replay Beta: {replay_beta:.4f}"
+            ]
+            return "\n".join(lines)
+
     # Optimize policy network
-    def optimize(self, mini_batch, policy_dqn, target_dqn, weights=None):
+    def optimize(self, mini_batch, mini_batch_n_step, policy_dqn, target_dqn, weights):
+        # We are gonna combine 1-step loss and n-step loss so as to prevent high-variance.
+        element_wise_loss = self.compute_loss(mini_batch, policy_dqn, target_dqn, self.discount_factor_g) + \
+                            self.compute_loss(mini_batch_n_step, policy_dqn, target_dqn, self.discount_factor_g**self.n_step)
+
+        # To update priorities in replay memory
+        td_error = torch.abs(element_wise_loss)
+
+        # Compute total loss.
+        loss = torch.mean(element_wise_loss**2 * weights)
+
+        # Optimize the model (backpropagation).
+        self.optimizer.zero_grad()  # Clear gradients.
+        loss.backward()             # Compute gradients.
+        self.optimizer.step()       # Update network parameters i.e. weights and biases.
+
+        return td_error
+
+    def compute_loss(self, mini_batch, policy_dqn, target_dqn, gamma):
         # Transpose the list of experiences and separate each element.
         states, actions, rewards, new_states, terminations = zip(*mini_batch)
  
@@ -216,29 +244,13 @@ class Agent():
             # Calculate target Q values (expected returns).
             best_actions_from_policy = policy_dqn(new_states).argmax(dim=1)
 
-            target_q = rewards + (1-terminations) * self.discount_factor_g * \
+            target_q = rewards + (1-terminations) * gamma * \
                             target_dqn(new_states).gather(dim=1, index=best_actions_from_policy.unsqueeze(dim=1)).squeeze()
         
         # Calcuate Q values from current policy.
         current_q = policy_dqn(states).gather(dim=1, index=actions.unsqueeze(dim=1)).squeeze()
 
-        if weights is None:
-            weights = torch.ones_like(current_q)
-
-        diff = current_q - target_q
-
-        # To update priorities in replay memory
-        td_error = torch.abs(diff).detach()
-
-        # Compute loss.
-        loss = torch.mean(diff**2 * weights)
-
-        # Optimize the model (backpropagation).
-        self.optimizer.zero_grad()  # Clear gradients.
-        loss.backward()             # Compute gradients.
-        self.optimizer.step()       # Update network parameters i.e. weights and biases.
-
-        return td_error
+        return current_q - target_q
 
     def test(self, randomized_enemy: bool = False, battles_to_play: int = 1000):
         print("Starting evaluation...")

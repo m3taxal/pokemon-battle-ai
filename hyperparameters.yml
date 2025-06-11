@@ -1,21 +1,21 @@
 pokemon_battle:
   env_id: pokemon_battle_env
-  replay_memory_size: 100000
-  replay_offset: 0.01
-  replay_alpha: 0.1
-  replay_beta: 0.1
+  n_step: 4
+  replay_memory_size: 1000000
+  replay_offset: 0.1
+  replay_alpha: 0.7
   mini_batch_size: 32
-  network_sync_rate: 2500
+  network_sync_rate: 50
   learning_rate_a: 0.0001
-  discount_factor_g: 0.99
+  discount_factor_g: 0.85
   train_freq: 4
-  steps: 2000000
+  steps: 1000000
   epsilon_init: 1
   epsilon_fraction: 0.2
   epsilon_min: 0.01
   randomize_enemy: False
-  log_freq: 20000
+  log_freq: 5000
   should_log: True
-  plot_freq: 5000
+  plot_freq: 3000
   should_plot: True
   continue_training: False

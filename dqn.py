@@ -1,7 +1,7 @@
 import torch
 from torch import nn
 import torch.nn.functional as F
-from move_encoder import MoveEmbedder
+from MoveEncoder import MoveEmbedder
 from custom_encodings import ENCODING_CONSTANTS
 
 class DQN(nn.Module):
