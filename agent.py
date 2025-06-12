@@ -10,7 +10,7 @@ from PokemonBattleEnv import PokemonBattleEnv
 from dqn import DQN
 from PrioritizedReplayBuffer import PrioritizedReplayBuffer
 from ReplayBuffer import ReplayBuffer
-from utils import device
+from utils import device, Transition
 
 # Directory for saving run info.
 MAIN_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -131,7 +131,7 @@ class Agent():
             reward = torch.tensor(reward, dtype=torch.float, device=device)
 
             # Save n-step transition and only start saving 1-step transitions once enough n-steps have been accumulated.
-            transition = (state, action, reward, new_state, int(terminated))
+            transition = Transition(state, action, reward, new_state, int(terminated))
             one_step_transition_ready = n_step_buffer.store(transition)
             if one_step_transition_ready:
                 memory.append(transition)
@@ -146,7 +146,7 @@ class Agent():
                     mini_batch, weights, indices = memory.sample(self.mini_batch_size, self.replay_alpha, 1-epsilon)
                     mini_batch_n_step = n_step_buffer.sample_from_indices(indices)
                     td_error = self.optimize(mini_batch, mini_batch_n_step, policy_dqn, target_dqn, 
-                                             torch.tensor(weights, dtype=torch.float, device=device))
+                                             torch.from_numpy(weights))
 
                     memory.update_probabilites(indices, td_error, self.replay_offset)
 
