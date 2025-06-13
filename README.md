@@ -16,7 +16,8 @@ Defines hyperparameters (such as learning rate, discount, ...) for agent.
 Contains DQN network architecture. We first embed moves, and then feed the concatenated field features and move features into the network.
 
 ## PrioritizedReplayBuffer.py
-Used for PER.
+Used for PER. The current implementatio of PER is very slow because I'm not using the segment tree data structure, which means the current agent does
+not use PER.
 
 ## ReplayBuffer.py
 Used for n-step learning.
@@ -33,9 +34,5 @@ Defines an OpenAI gym enviroment to be used in conjunction with the pokemon batt
 ## utils.py
 Defines a wrapper class for transitions aswell as the device on which the agent will be trained on.
 
-# Current problems
-The actual processing of training steps takes longer the more training steps have been processed. For example, processing 20k steps at the beginnng (step 0) takes maybe 1 minute, while at step 100k it could take up to 3 minutes.
-
-The increase in processing time isn't unusual since the replay memory keeps accumulating transitions, meaning that sampling will take longer and longer. However, I feel like the current increase in processing time is too big.
-
-The checkpoints in `checkpoints/test_series` were done with PER and n-step, every other checkpoint was done without PER and n-step. `checkpoints/old` can be ignored since a slightly modified DQN architecture was used (and they contained implementation errors, which renders them invalid for comparisons).
+## Current Progress
+n-step learning actually worsens performance...
