@@ -8,9 +8,8 @@ from vgc2.agent.battle import RandomBattlePolicy, GreedyBattlePolicy
 from vgc2.battle_engine import BattleEngine, TeamView, State, StateView, BattleRuleParam, BattleCommand
 from vgc2.battle_engine.game_state import get_battle_teams
 from vgc2.competition.match import label_teams
-from vgc2.util.generator import gen_team, TeamGenerator
+from vgc2.util.generator import gen_team
 from custom_encodings import encode_state, ENCODING_CONSTANTS, EncodeContext
-from vgc2.battle_engine.modifiers import Stat
 from vgc2.util.forward import *
 
 # Register this module as a gym environment. Once registered, the id is usable in gym.make().
@@ -95,12 +94,6 @@ class PokemonBattleEnv(gym.Env):
         cmds: list[BattleCommand] = []
         cmds += action
 
-        # HP stuff
-        own_max_hp = sum([pkm.constants.stats[Stat.MAX_HP] for pkm in own_team])
-        own_hp_before_turn = sum([pkm.hp for pkm in own_team])
-        opp_max_hp = sum([pkm.constants.stats[Stat.MAX_HP] for pkm in opp_team])
-        opp_hp_before_turn = sum([pkm.hp for pkm in opp_team])
-
         # Punish if agent chose disabled or out-of-pp move
         for i, battle_pkm in enumerate(state.sides[0].team.active):
             if battle_pkm.battling_moves[action[i][0]].disabled or battle_pkm.battling_moves[action[i][0]].pp <= 0:
@@ -121,10 +114,6 @@ class PokemonBattleEnv(gym.Env):
         own_team = state.sides[0].team.active+state.sides[0].team.reserve
         opp_team = state.sides[1].team.active+state.sides[1].team.reserve
 
-        # HP stuff
-        own_hp_after_turn = sum([pkm.hp for pkm in own_team])
-        opp_hp_after_turn = sum([pkm.hp for pkm in opp_team])
-
         # Reward if enemy was killed
         dead_opp_pkm_after_turn = sum([1 if pkm.fainted() else 0 for pkm in opp_team])
         reward += (dead_opp_pkm_after_turn-dead_opp_pkm_before_turn) # A maximum of 2 pkm can be killed in a single turn
@@ -133,23 +122,15 @@ class PokemonBattleEnv(gym.Env):
         dead_own_pkm_after_turn = sum([1 if pkm.fainted() else 0 for pkm in own_team])
         reward += dead_own_pkm_before_turn-dead_own_pkm_after_turn
 
-        # Reward if more HP after turn (e.g. if agent healed itself)
-        # Punish if dmg was taken
-        reward += ((own_hp_after_turn-own_hp_before_turn) / own_max_hp)
-
-        # Reward if enemy has lost health
-        # Punish if enemy healed itself
-        reward += ((opp_hp_before_turn-opp_hp_after_turn) / opp_max_hp)
-
         terminated = self.engine.state.terminal()
 
         # Reward agent if they won the battle, punish if lost
         if terminated:
             if self.engine.winning_side == 0:
-                reward += 8
+                reward += 4
                 self.wins += 1
             else:
-                reward += -8
+                reward += -4
 
         observation = self._get_obs()
         info = self._get_info()

@@ -36,3 +36,11 @@ Defines a wrapper class for transitions aswell as the device on which the agent 
 
 ## Current Progress
 n-step learning actually worsens performance...
+
+Properly implement PER with SumTree.
+
+Make neural network deeper?
+
+QR-DQN?
+
+Student-Teacher curriculum learning.

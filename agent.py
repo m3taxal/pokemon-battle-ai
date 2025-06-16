@@ -8,7 +8,7 @@ import argparse
 from datetime import datetime
 from PokemonBattleEnv import PokemonBattleEnv
 from dqn import DQN
-from PrioritizedReplayBuffer import PrioritizedReplayBuffer
+#from dqn_no_embed import DQN
 from ReplayBuffer import ReplayBuffer
 from utils import device, Transition
 
@@ -44,7 +44,8 @@ class Agent():
         self.epsilon_fraction       = self.hyperparameters['epsilon_fraction']       # over what fraction of steps epsilon should be decayed until epsilon_min
         self.epsilon_min            = self.hyperparameters['epsilon_min']            # minimum epsilon value
         self.randomize_enemy        = self.hyperparameters['randomize_enemy']        # if opponent should be randomized each battle
-        self.log_freq               = self.hyperparameters['log_freq']               # how often we should log our results
+        self.log_freq               = self.hyperparameters['log_freq']               # how often we should log our results (in steps)
+        self.plot_freq              = self.hyperparameters['plot_freq']              # how often we should plot (in episodes)
         self.continue_training      = self.hyperparameters['continue_training']      # whether or not to continue training previous model (False if no previous model)
 
         # Neural Network.
@@ -165,12 +166,16 @@ class Agent():
                 # Reset environment for next episode. Reset returns (state,info).    
                 state = torch.tensor(env.reset()[0], dtype=torch.float, device=device)
 
+                # Plot model
+                if env.matches != 0 and env.matches % self.plot_freq == 0:
+                    self.save_graph(reward_history, env.winrate_history)
+
                 # Reset episode attributes for next episode.
                 episode_reward = 0
         
         # Plot last state of model.
         self.save_graph(reward_history, env.winrate_history)    
-        
+
         print("Training finished!")
 
     def log(self, time: str, step: int, winrate: float, epsilon: float) -> str:
