@@ -35,12 +35,8 @@ Defines an OpenAI gym enviroment to be used in conjunction with the pokemon batt
 Defines a wrapper class for transitions aswell as the device on which the agent will be trained on.
 
 ## Current Progress
-n-step learning actually worsens performance...
-
 Properly implement PER with SumTree.
 
 Make neural network deeper?
-
-QR-DQN?
 
 Student-Teacher curriculum learning.

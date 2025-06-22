@@ -1,0 +1,211 @@
+Logging hyperparameters...
+env_id: pokemon_battle_env
+replay_memory_size: 3000000
+n_step: 3
+num_quant: 51
+mini_batch_size: 32
+network_sync_rate: 50
+learning_rate_a: 0.0001
+discount_factor_g: 0.85
+train_freq: 4
+steps: 1000000
+epsilon_init: 1
+epsilon_fraction: 0.2
+epsilon_min: 0.01
+randomize_enemy: False
+log_freq: 20000
+plot_freq: 40000
+continue_training: False
+
+06-21 20:45:00: Beginning new training session... 
+
+Logged at 06-21 20:46:45
+Step: 20000
+Winrate: 0.58
+Epsilon: 0.9012
+
+Logged at 06-21 20:48:28
+Step: 40000
+Winrate: 0.58
+Epsilon: 0.8022
+
+Logged at 06-21 20:50:12
+Step: 60000
+Winrate: 0.58
+Epsilon: 0.7032
+
+Logged at 06-21 20:51:58
+Step: 80000
+Winrate: 0.58
+Epsilon: 0.6042
+
+Logged at 06-21 20:53:45
+Step: 100000
+Winrate: 0.59
+Epsilon: 0.5052
+
+Logged at 06-21 20:55:31
+Step: 120000
+Winrate: 0.59
+Epsilon: 0.4062
+
+Logged at 06-21 20:57:17
+Step: 140000
+Winrate: 0.59
+Epsilon: 0.3072
+
+Logged at 06-21 20:59:03
+Step: 160000
+Winrate: 0.60
+Epsilon: 0.2082
+
+Logged at 06-21 21:00:49
+Step: 180000
+Winrate: 0.60
+Epsilon: 0.1092
+
+Logged at 06-21 21:02:35
+Step: 200000
+Winrate: 0.61
+Epsilon: 0.0102
+
+Logged at 06-21 21:04:22
+Step: 220000
+Winrate: 0.62
+Epsilon: 0.0100
+
+Logged at 06-21 21:06:10
+Step: 240000
+Winrate: 0.63
+Epsilon: 0.0100
+
+Logged at 06-21 21:07:59
+Step: 260000
+Winrate: 0.64
+Epsilon: 0.0100
+
+Logged at 06-21 21:09:47
+Step: 280000
+Winrate: 0.65
+Epsilon: 0.0100
+
+Logged at 06-21 21:11:35
+Step: 300000
+Winrate: 0.66
+Epsilon: 0.0100
+
+Logged at 06-21 21:13:25
+Step: 320000
+Winrate: 0.67
+Epsilon: 0.0100
+
+Logged at 06-21 21:15:17
+Step: 340000
+Winrate: 0.68
+Epsilon: 0.0100
+
+Logged at 06-21 21:17:10
+Step: 360000
+Winrate: 0.69
+Epsilon: 0.0100
+
+Logged at 06-21 21:19:03
+Step: 380000
+Winrate: 0.69
+Epsilon: 0.0100
+
+Logged at 06-21 21:20:53
+Step: 400000
+Winrate: 0.70
+Epsilon: 0.0100
+
+Logged at 06-21 21:22:42
+Step: 420000
+Winrate: 0.70
+Epsilon: 0.0100
+
+Logged at 06-21 21:24:32
+Step: 440000
+Winrate: 0.71
+Epsilon: 0.0100
+
+Logged at 06-21 21:26:21
+Step: 460000
+Winrate: 0.71
+Epsilon: 0.0100
+
+Logged at 06-21 21:28:09
+Step: 480000
+Winrate: 0.72
+Epsilon: 0.0100
+
+Logged at 06-21 21:29:58
+Step: 500000
+Winrate: 0.72
+Epsilon: 0.0100
+
+Logged at 06-21 21:31:49
+Step: 520000
+Winrate: 0.73
+Epsilon: 0.0100
+
+Logged at 06-21 21:33:37
+Step: 540000
+Winrate: 0.73
+Epsilon: 0.0100
+
+Logged at 06-21 21:35:25
+Step: 560000
+Winrate: 0.73
+Epsilon: 0.0100
+
+Logged at 06-21 21:37:12
+Step: 580000
+Winrate: 0.74
+Epsilon: 0.0100
+
+Logged at 06-21 21:39:01
+Step: 600000
+Winrate: 0.74
+Epsilon: 0.0100
+
+Logged at 06-21 21:40:52
+Step: 620000
+Winrate: 0.74
+Epsilon: 0.0100
+
+Logged at 06-21 21:42:41
+Step: 640000
+Winrate: 0.74
+Epsilon: 0.0100
+
+Logged at 06-21 21:44:33
+Step: 660000
+Winrate: 0.75
+Epsilon: 0.0100
+
+Logged at 06-21 21:46:23
+Step: 680000
+Winrate: 0.75
+Epsilon: 0.0100
+
+Logged at 06-21 21:48:12
+Step: 700000
+Winrate: 0.75
+Epsilon: 0.0100
+
+Logged at 06-21 21:49:59
+Step: 720000
+Winrate: 0.75
+Epsilon: 0.0100
+
+Logged at 06-21 21:51:37
+Step: 740000
+Winrate: 0.75
+Epsilon: 0.0100
+
+Logged at 06-21 21:53:14
+Step: 760000
+Winrate: 0.75
+Epsilon: 0.0100
+

@@ -11,6 +11,7 @@ from vgc2.competition.match import label_teams
 from vgc2.util.generator import gen_team
 from custom_encodings import encode_state, ENCODING_CONSTANTS, EncodeContext
 from vgc2.util.forward import *
+from vgc2.battle_engine.modifiers import Stat
 
 # Register this module as a gym environment. Once registered, the id is usable in gym.make().
 register(
@@ -84,13 +85,13 @@ class PokemonBattleEnv(gym.Env):
     def step(self,
              action) -> tuple[ObsType, SupportsFloat, bool, bool, dict[str, Any]]:
         # Setup for reward calculation
-        state = copy_state(self.state_view[0])
+        state = self.state_view[0]
         own_team = state.sides[0].team.active+state.sides[0].team.reserve
         opp_team = state.sides[1].team.active+state.sides[1].team.reserve
         reward = 0
-        
+
         # Handle index to action conversion and add to battle commands
-        action = self.index_to_action(action, self.int_action_space)
+        action = self.index_to_action(action)
         cmds: list[BattleCommand] = []
         cmds += action
 
@@ -109,14 +110,9 @@ class PokemonBattleEnv(gym.Env):
         opp_action = self.opponent.decision(self.state_view[1])
         self.engine.run_turn((cmds, opp_action))
 
-        # Reassign setup to calculate reward
-        state = copy_state(self.state_view[0])
-        own_team = state.sides[0].team.active+state.sides[0].team.reserve
-        opp_team = state.sides[1].team.active+state.sides[1].team.reserve
-
         # Reward if enemy was killed
         dead_opp_pkm_after_turn = sum([1 if pkm.fainted() else 0 for pkm in opp_team])
-        reward += (dead_opp_pkm_after_turn-dead_opp_pkm_before_turn) # A maximum of 2 pkm can be killed in a single turn
+        reward += dead_opp_pkm_after_turn-dead_opp_pkm_before_turn # A maximum of 2 pkm can be killed in a single turn
 
         # Punish if own pkm was killed
         dead_own_pkm_after_turn = sum([1 if pkm.fainted() else 0 for pkm in own_team])
@@ -136,14 +132,13 @@ class PokemonBattleEnv(gym.Env):
         info = self._get_info()
         return observation, reward, terminated, False, info
 
-    def index_to_action(self, index: int, action_space: gym.spaces.MultiDiscrete):
+    def index_to_action(self, index: int):
             """
             Convert flat index to grouped MultiDiscrete action as tuples.
 
             Returns List[Tuple[int, int]]: Grouped action, e.g. [(0, 1), (2, 3)]
             """
-            nvec = action_space.nvec
-            dims = len(nvec)
+            nvec = self.int_action_space.nvec
 
             # Decode index into individual MultiDiscrete values
             action = []
@@ -169,4 +164,3 @@ class PokemonBattleEnv(gym.Env):
 
     def _get_info(self):
         return {}
-    

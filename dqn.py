@@ -5,57 +5,53 @@ from MoveEncoder import MoveEmbedder
 from custom_encodings import ENCODING_CONSTANTS
 
 class DQN(nn.Module):
-
-    def __init__(self, action_dim=64):
+    def __init__(self, action_dim: int, num_quantiles: int):
         super().__init__()
-        self.n_moves    = ENCODING_CONSTANTS.MAX_MOVES*ENCODING_CONSTANTS.MAX_PKM_PER_TEAM + ENCODING_CONSTANTS.MAX_PKM_PER_TEAM
-        self.embed_dim  = ENCODING_CONSTANTS.EMBEDDED_MOVE
-        self.field_dim  = ENCODING_CONSTANTS.STATE-ENCODING_CONSTANTS.MOVE*self.n_moves
+        self.n_moves = ENCODING_CONSTANTS.MAX_MOVES * ENCODING_CONSTANTS.MAX_PKM_PER_TEAM + ENCODING_CONSTANTS.MAX_PKM_PER_TEAM
+        self.embed_dim = ENCODING_CONSTANTS.EMBEDDED_MOVE
+        self.field_dim = ENCODING_CONSTANTS.STATE - ENCODING_CONSTANTS.MOVE * self.n_moves
 
-        # Initialize move embedder
+        self.num_quantiles = num_quantiles
+        self.action_dim = action_dim
+
+        # Move embedder
         self.move_embedder = MoveEmbedder()
 
-        # Hidden layer dim
-        self.hl1_dim = 256
-        self.hl2_dim = 128
+        # Hidden layers
+        self.fc1 = nn.Linear(self.field_dim + self.n_moves * self.embed_dim, 256)
+        self.fc2 = nn.Linear(256, 128)
 
-        # DQN now takes aggregated field and embedded move features
-        self.fc1 = nn.Linear(self.field_dim + self.n_moves * ENCODING_CONSTANTS.EMBEDDED_MOVE, self.hl1_dim)
-        self.fc2 = nn.Linear(self.hl1_dim, self.hl2_dim)
+        # Value stream (outputs quantiles)
+        self.fc_value = nn.Linear(128, 128)
+        self.value = nn.Linear(128, num_quantiles)  # Output: (batch, num_quantiles)
 
-        # Value stream
-        self.fc_value = nn.Linear(self.hl2_dim, self.hl2_dim)
-        self.value = nn.Linear(self.hl2_dim, 1)
-
-        # Advantage stream
-        self.fc_advantages = nn.Linear(self.hl2_dim, self.hl2_dim)
-        self.advantages = nn.Linear(self.hl2_dim, action_dim)
+        # Advantage stream (outputs quantiles for each action)
+        self.fc_advantages = nn.Linear(128, 128)
+        self.advantages = nn.Linear(128, action_dim * num_quantiles)  # Output: (batch, action_dim * num_quantiles)
 
     def forward(self, x):
-        # x is (batch, state features + move features)
+        batch_size = x.size(0)
         field_state = x[:, :self.field_dim]
-        
-        # Handle move encoding
-        moves_raw   = x[:, self.field_dim:]
+
+        moves_raw = x[:, self.field_dim:]
         moves_raw = moves_raw.reshape(-1, self.n_moves, ENCODING_CONSTANTS.MOVE)
         moves_emb = self.move_embedder(moves_raw)
-        moves_emb = moves_emb.reshape(-1, self.n_moves * self.embed_dim)
+        moves_emb = moves_emb.reshape(batch_size, -1)
 
-        # concat with field_state -> (batch, len(field features) + len(embedded move features))
         fused = torch.cat([field_state, moves_emb], dim=1)
-
         h = F.relu(self.fc1(fused))
         h = F.relu(self.fc2(h))
 
-        # Value calc
+        # Value stream
         v = F.relu(self.fc_value(h))
-        V = self.value(v)
+        V = self.value(v).unsqueeze(1)  # shape: (batch, 1, num_quantiles)
 
-        # Advantage calc
+        # Advantage stream
         a = F.relu(self.fc_advantages(h))
-        A = self.advantages(a)
+        A = self.advantages(a).view(batch_size, self.action_dim, self.num_quantiles)  # shape: (batch, action_dim, num_quantiles)
 
-        # Calc Q
-        Q = V + A - torch.mean(A, dim=1, keepdim=True)
+        # Combine streams: V + (A - mean_A)
+        mean_A = A.mean(dim=1, keepdim=True)  # shape: (batch, 1, num_quantiles)
+        Q = V + (A - mean_A)  # shape: (batch, action_dim, num_quantiles)
 
-        return Q
+        return Q  # shape: (batch, action_dim, num_quantiles)
