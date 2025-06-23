@@ -4,14 +4,18 @@ from gymnasium.core import ObsType, RenderFrame
 from gymnasium.envs.registration import register
 from typing import SupportsFloat, Any
 from vgc2.agent import BattlePolicy
+
 from vgc2.agent.battle import RandomBattlePolicy, GreedyBattlePolicy
+from no_quant_battle_policy import NoQuantBattlePolicy
+from quant_battle_policy import QuantBattlePolicy
+
 from vgc2.battle_engine import BattleEngine, TeamView, State, StateView, BattleRuleParam, BattleCommand
 from vgc2.battle_engine.game_state import get_battle_teams
 from vgc2.competition.match import label_teams
 from vgc2.util.generator import gen_team
 from custom_encodings import encode_state, ENCODING_CONSTANTS, EncodeContext
 from vgc2.util.forward import *
-from vgc2.battle_engine.modifiers import Stat
+from collections import deque
 
 # Register this module as a gym environment. Once registered, the id is usable in gym.make().
 register(
@@ -27,15 +31,28 @@ class PokemonBattleEnv(gym.Env):
                  max_team_size: int = 4,
                  max_pkm_moves: int = 4,
                  params: BattleRuleParam = BattleRuleParam(),
-                 opponent: BattlePolicy = GreedyBattlePolicy()):
+                 opponent: BattlePolicy = RandomBattlePolicy()):
         self.randomize_enemy = randomize_enemy
         self.ctx = ctx
         self.n_active = n_active
         self.max_team_size = max_team_size
         self.max_pkm_moves = max_pkm_moves
         self.params = params
-        self.opponents = [GreedyBattlePolicy(), RandomBattlePolicy()]
+
+        self.opponents = [RandomBattlePolicy(), GreedyBattlePolicy()]
+        # Add model battle policies
+        # NoQuant 
+        for i in range(13):
+            self.opponents.append(NoQuantBattlePolicy(i))
+        self.opponents.append(QuantBattlePolicy(13, 21))
+        self.opponents.append(QuantBattlePolicy(14, 21))
+        self.opponents.append(QuantBattlePolicy(15, 21))
+        # Quant
+        for i in range(16, 21):
+            self.opponents.append(QuantBattlePolicy(i))
+
         self.opponent = opponent
+        self.max_reward = 8
         self.encode_state = encode_state
         self.gen_team = gen_team
         self.encode_len = ENCODING_CONSTANTS.STATE
@@ -46,10 +63,6 @@ class PokemonBattleEnv(gym.Env):
         self.observation_space = gym.spaces.Box(low=0.0, high=1.0, shape=(self.encode_len,), dtype=np.float32)
         self.engine, self.state_view = self._get_engine_view()
         self.encode_buffer = np.zeros(self.encode_len)
-        self.matches = 0
-        self.wins = 0
-        self.winrate = 0
-        self.winrate_history = np.array([])
 
     def _get_engine_view(self) -> tuple[BattleEngine, tuple[StateView, StateView]]:
         team = (self.gen_team(self.max_team_size, self.max_pkm_moves),
@@ -59,8 +72,8 @@ class PokemonBattleEnv(gym.Env):
         state = State(get_battle_teams(team, self.n_active))
         return BattleEngine(state, self.params), (StateView(state, 0, team_view), StateView(state, 1, team_view))
     
-    def set_opponent(self, opponent: BattlePolicy = RandomBattlePolicy()):
-        self.opponent = np.random.choice(self.opponents)
+    def set_opponent(self, opponent_ind: int):
+        self.opponent = self.opponents[opponent_ind]
 
     def set_random_teams(self):
         self.engine, self.state_view = self._get_engine_view()
@@ -74,9 +87,6 @@ class PokemonBattleEnv(gym.Env):
         self.engine.reset()
         observation = self._get_obs()
         info = self._get_info()
-        self.matches += 1
-        self.winrate = self.wins / self.matches
-        self.winrate_history = np.append(self.winrate_history, self.winrate)
         # Randomizes opponent (GreedyBot or RandomBot) for next battle
         if self.randomize_enemy:
             self.set_opponent()
@@ -124,7 +134,6 @@ class PokemonBattleEnv(gym.Env):
         if terminated:
             if self.engine.winning_side == 0:
                 reward += 4
-                self.wins += 1
             else:
                 reward += -4
 

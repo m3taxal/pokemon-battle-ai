@@ -19,7 +19,8 @@ class DQN(nn.Module):
 
         # Hidden layers
         self.fc1 = nn.Linear(self.field_dim + self.n_moves * self.embed_dim, 256)
-        self.fc2 = nn.Linear(256, 128)
+        self.fc2 = nn.Linear(256, 192)
+        self.fc3 = nn.Linear(192, 128)
 
         # Value stream (outputs quantiles)
         self.fc_value = nn.Linear(128, 128)
@@ -41,6 +42,7 @@ class DQN(nn.Module):
         fused = torch.cat([field_state, moves_emb], dim=1)
         h = F.relu(self.fc1(fused))
         h = F.relu(self.fc2(h))
+        h = F.relu(self.fc3(h))
 
         # Value stream
         v = F.relu(self.fc_value(h))

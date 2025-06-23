@@ -1,18 +1,17 @@
 pokemon_battle:
-  env_id: pokemon_battle_env
+  task_buffer: 5
+  task_length: 2000
   replay_memory_size: 3000000
-  n_step: 3
-  num_quant: 51
+  num_quant: 32
   mini_batch_size: 32
   network_sync_rate: 50
   learning_rate_a: 0.0001
   discount_factor_g: 0.85
   train_freq: 4
-  steps: 2000000
+  steps: 1000000
   epsilon_init: 1
   epsilon_fraction: 0.2
   epsilon_min: 0.1
   randomize_enemy: False
   log_freq: 20000
-  plot_freq: 40000
-  continue_training: True
+  continue_training: False

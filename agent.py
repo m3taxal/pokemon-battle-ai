@@ -7,10 +7,12 @@ import matplotlib.pyplot as plt
 import argparse
 from datetime import datetime
 from PokemonBattleEnv import PokemonBattleEnv
-from dqn import DQN
+from agent_dqn import DQN
 from ReplayBuffer import ReplayBuffer
 from utils import device, Transition
 import torch.nn.functional as F
+from Teacher import Teacher
+from collections import deque
 
 # Directory for saving run info.
 MAIN_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -31,9 +33,9 @@ class Agent():
 
         self.hyperparameter_set = hyperparameter_set
         # Hyperparameters (adjustable).
-        self.env_id                 = self.hyperparameters['env_id']                 # used for gym.make()
+        self.task_buffer            = self.hyperparameters['task_buffer']            # how many last rewards should be remembered for each opponent for sampling
+        self.task_length            = self.hyperparameters['task_length']            # how long a single task should be, i.e. how many battles should be fought
         self.replay_memory_size     = self.hyperparameters['replay_memory_size']     # size of replay memory
-        self.n_step                 = self.hyperparameters['n_step']                 # to calculate n-step reward
         self.num_quant              = self.hyperparameters['num_quant']              # how many quantiles should be estimated
         self.mini_batch_size        = self.hyperparameters['mini_batch_size']        # size of the training data set sampled from the replay memory
         self.network_sync_rate      = self.hyperparameters['network_sync_rate']      # number of steps the agent takes before syncing the policy and target network
@@ -46,7 +48,6 @@ class Agent():
         self.epsilon_min            = self.hyperparameters['epsilon_min']            # minimum epsilon value
         self.randomize_enemy        = self.hyperparameters['randomize_enemy']        # if opponent should be randomized each battle
         self.log_freq               = self.hyperparameters['log_freq']               # how often we should log our results (in steps)
-        self.plot_freq              = self.hyperparameters['plot_freq']              # how often we should plot (in episodes)
         self.continue_training      = self.hyperparameters['continue_training']      # whether or not to continue training previous model (False if no previous model)
 
         # Quantile tau for loss calculation.
@@ -59,6 +60,15 @@ class Agent():
         self.LOG_FILE   = os.path.join(RUNS_DIR, f'{self.hyperparameter_set}.log')
         self.MODEL_FILE = os.path.join(RUNS_DIR, f'{self.hyperparameter_set}.pt')
         self.GRAPH_FILE = os.path.join(RUNS_DIR, f'{self.hyperparameter_set}.png')
+
+        # Create instance of the environment.
+        self.env = PokemonBattleEnv(self.randomize_enemy)
+
+        # Init teacher.
+        self.teacher = Teacher(len(self.env.opponents), self.task_buffer)
+
+    def normalize_rew(self, rew):
+        return rew / self.env.max_reward
 
     def train(self):
         # Log initial hyperparameters.
@@ -73,10 +83,7 @@ class Agent():
         with open(self.LOG_FILE, 'a') as file:
             file.write(log_message + '\n')
 
-        # Create instance of the environment.
-        env = PokemonBattleEnv(self.randomize_enemy)
-
-        num_actions = env.action_space.n
+        num_actions = self.env.action_space.n
 
         # Create policy network.
         policy_dqn = DQN(action_dim=num_actions, num_quantiles=self.num_quant).to(device)
@@ -88,11 +95,8 @@ class Agent():
         # Initialize epsilon.
         epsilon = self.epsilon_init
         
-        # Initialize n-step buffer.
-        n_step_buffer = ReplayBuffer(self.replay_memory_size, self.mini_batch_size, self.n_step, self.discount_factor_g)
-
         # Initialize normal memory with n_step = 1.
-        memory = ReplayBuffer(self.replay_memory_size, self.mini_batch_size, 1, self.discount_factor_g)
+        memory = ReplayBuffer(self.replay_memory_size, self.mini_batch_size)
 
         # Create the target network and make it identical to the policy network.
         target_dqn = DQN(action_dim=num_actions, num_quantiles=self.num_quant).to(device)
@@ -101,18 +105,20 @@ class Agent():
         # Policy network optimizer. "Adam" optimizer can be swapped to something else.
         self.optimizer = torch.optim.Adam(policy_dqn.parameters(), lr=self.learning_rate_a)
 
-        state, _ = env.reset()  # Initialize environment. Reset returns (state,info).    
+        state, _ = self.env.reset()  # Initialize environment. Reset returns (state,info).    
         state = torch.tensor(state, dtype=torch.float, device=device) # Convert state to tensor directly on device.
 
-        # For plotting graphs.
+        # Teacher attributes.
         episode_reward = 0
-        reward_history = np.array([])
+        task_reward = np.array([])
+        chosen_task = self.teacher.sample_task()
+        self.env.set_opponent(chosen_task)
 
         for step in range(self.steps):
             # Select action based on epsilon-greedy.
             if random.random() < epsilon:
                 # select random action
-                action = torch.tensor(env.action_space.sample(), dtype=torch.int64, device=device)
+                action = torch.tensor(self.env.action_space.sample(), dtype=torch.int64, device=device)
             else:
                 # select best action
                 with torch.no_grad():
@@ -121,7 +127,7 @@ class Agent():
                     action = q_values.squeeze().argmax()
                     
             # Execute action. Truncated and info is not used.
-            new_state, reward, terminated, truncated, info = env.step(action.item())
+            new_state, reward, terminated, truncated, info = self.env.step(action.item())
 
             episode_reward += reward
 
@@ -129,77 +135,80 @@ class Agent():
             new_state = torch.tensor(new_state, dtype=torch.float, device=device)
             reward = torch.tensor(reward, dtype=torch.float, device=device)
 
-            # Store n-step transition.
-            if n_step_buffer.store(Transition(state, action, reward, new_state, int(terminated))):
-                memory.store(Transition(state, action, reward, new_state, int(terminated)))
+            # Store transition into memory.
+            memory.store(Transition(state, action, reward, new_state, int(terminated)))
 
             # Move to the next state.
             state = new_state
 
             # If enough experience has been collected.
-            if len(n_step_buffer)>=self.mini_batch_size:
+            if len(memory)>=self.mini_batch_size:
                 # Update every train_freq.
                 if step % self.train_freq == 0:
-                    mini_batch_n, indices = n_step_buffer.sample()
-                    mini_batch = memory.sample_from_idxs(indices)
-                    self.optimize(mini_batch_n, mini_batch, policy_dqn, target_dqn)
+                    self.optimize(memory.sample(), policy_dqn, target_dqn)
 
                 if self.steps % self.network_sync_rate == 0:
                     # Copy policy network to target network.
                     target_dqn.load_state_dict(policy_dqn.state_dict())
 
-                # Linear epsilon decay over fraction of training steps.
-                if epsilon > self.epsilon_min:
-                    decay_factor = ((self.epsilon_init-self.epsilon_min) / (self.epsilon_fraction*self.steps))
-                    epsilon -= decay_factor
-
-                    # Possible floating point inaccuracies could occur, so set epsilon to epsilon_min if necessary.
-                    if epsilon < self.epsilon_min:
-                        epsilon = self.epsilon_min
-
             # Save model and log results if another log_freq steps have been processed.
-            if step % self.log_freq == 0 and step > 0: # No use in logging the 0th step
+            if step % self.log_freq == 0 and step > 0: # No use in logging the 0th step.
                 torch.save(policy_dqn.state_dict(), self.MODEL_FILE)
-                # Not exactly sure which metrics to log... winrate is already being plotted,
-                # and epsilon isn't very interesting to log.
-                log_message = self.log(datetime.now().strftime(DATE_FORMAT), step, env.winrate, epsilon)
+                # Logs metrics
+                log_message = self.log(datetime.now().strftime(DATE_FORMAT), step, self.teacher.score_buffers, epsilon)
                 print(log_message + "\n")
                 with open(self.LOG_FILE, 'a') as file:
                     file.write(log_message + '\n'*2)
 
             if terminated:
-                reward_history = np.append(reward_history, episode_reward)
-                
-                # Reset environment for next episode. Reset returns (state,info).    
-                state = torch.tensor(env.reset()[0], dtype=torch.float, device=device)
+                # Linear epsilon decay over fraction of training episodes.
+                if epsilon > self.epsilon_min:
+                    epsilon -= (self.epsilon_init-self.epsilon_min) / (self.epsilon_fraction*self.task_length)
 
-                # Plot model
-                if env.matches != 0 and env.matches % self.plot_freq == 0:
-                    print("Plotting now..." + "\n")
-                    self.save_graph(reward_history, env.winrate_history)
+                    # Possible floating point inaccuracies could occur, so set epsilon to epsilon_min if necessary.
+                    if epsilon < self.epsilon_min:
+                        epsilon = self.epsilon_min
+
+                task_reward = np.append(task_reward, self.normalize_rew(episode_reward))
+
+                # We have fought self.task_length battles.
+                # Update teacher, choose new task and reset teacher attributes.
+                if len(task_reward)==self.task_length:
+                    print("Began a new task.\n")
+                    self.teacher.update(chosen_task, np.mean(task_reward[int(self.epsilon_fraction*len(task_reward)):]))
+                    chosen_task = self.teacher.sample_task()
+                    self.env.set_opponent(chosen_task)
+                    task_reward = np.array([])
+                    epsilon = self.epsilon_init
+                    
+                # Reset environment for next episode. Reset returns (state,info).    
+                state = torch.tensor(self.env.reset()[0], dtype=torch.float, device=device)
 
                 # Reset episode attributes for next episode.
                 episode_reward = 0
         
-        # Plot last state of model.
-        self.save_graph(reward_history, env.winrate_history)    
-
         print("Training finished!")
 
-    def log(self, time: str, step: int, winrate: float, epsilon: float) -> str:
+    def log(self, time: str, step: int, task_rew, epsilon) -> str:
             lines = [
                 f"Logged at {time}",
-                f"Step: {step}",
-                f"Winrate: {winrate:.2f}",
-                f"Epsilon: {epsilon:.4f}"
+                f"Step: {step}"
             ]
+
+            for i in range(len(task_rew)):
+                new_line = f"Task {i} last 2 average rewards: "
+                for rew in task_rew[i]:
+                    new_line += str(rew) + ", "
+                lines.append(new_line)
+
+            lines.append(f"Current epsilon: {epsilon:.4f}")
+
             return "\n".join(lines)
 
     # Optimize policy network
-    def optimize(self, mini_batch_n, mini_batch, policy_dqn, target_dqn):
+    def optimize(self, mini_batch, policy_dqn, target_dqn):
         # Calculate loss of n-step transition batch.
-        loss = self.compute_loss(mini_batch_n, policy_dqn, target_dqn, self.discount_factor_g**self.n_step) + \
-               self.compute_loss(mini_batch, policy_dqn, target_dqn, self.discount_factor_g)
+        loss = self.compute_loss(mini_batch, policy_dqn, target_dqn, self.discount_factor_g)
 
         # Optimize the model (backpropagation).
         self.optimizer.zero_grad()  # Clear gradients.
